@@ -1,10 +1,22 @@
-# Electronics Price MCP
+# electronics-price-mcp
 
-한국 쇼핑몰 기준으로 전자기기와 PC 부품을 찾고, 같은 모델끼리만 가격을 비교해 주는 원격 MCP 서버입니다.
+`electronics-price-mcp`는 한국 쇼핑몰 기준으로 전자기기와 PC 부품을 검색하고, 같은 모델끼리만 현재 가격을 비교하는 원격 MCP 서버입니다. 공개 production은 네이버 쇼핑 검색 API를 기본 source로 사용하고, Danawa provider는 canary 환경에서 먼저 검증하도록 분리했습니다.
 
-공개 production은 공식 [네이버 쇼핑 검색 API](https://developers.naver.com/docs/serviceapi/search/shopping/shopping.md)를 기본 소스로 사용합니다. Danawa는 `canary-first`로 검증하고 있고, canary/dev에서는 `static-catalog` fallback으로 품질 게이트를 계속 돌릴 수 있게 유지합니다.
+## 문제의식
 
-## 빠른 연결
+전자기기 가격 비교는 모델명이 조금만 달라도 다른 상품이 섞이기 쉽습니다. 이 프로젝트는 검색과 비교를 분리하고, `RTX 5070`과 `RTX 5070 Ti`처럼 다른 모델이 섞이면 비교를 거부하는 보수적인 가격 비교 MCP를 목표로 합니다.
+
+## 주요 기능
+
+- 한국 전자기기/PC 부품 검색
+- 동일 모델 기준 현재 가격 비교
+- Naver-only production provider
+- Danawa canary provider와 static-catalog fallback
+- HTTP API companion surface
+- Durable Object 기반 route별 rate limit
+- provider diagnostics와 품질 평가 리포트
+
+## 원격 연결
 
 원격 MCP 주소:
 
@@ -12,62 +24,52 @@
 https://electronics-price-mcp.jinhyuk9714.workers.dev/mcp
 ```
 
-공개 배포본을 그대로 쓰는 경우에는 환경변수가 필요 없습니다. 위 주소만 등록하면 됩니다.
-
-### ChatGPT
-
-원격 MCP 서버를 추가할 수 있는 화면이 보이면 위 주소를 그대로 넣으면 됩니다. UI 이름은 버전에 따라 `MCP`, `Connector`, `Server`처럼 다를 수 있습니다.
-
-### Claude Desktop
-
-원격 MCP를 직접 추가할 수 있는 환경이라면 같은 주소를 사용하면 됩니다.
-
-### Claude Code
-
-```bash
-claude mcp add electronics-price-mcp https://electronics-price-mcp.jinhyuk9714.workers.dev/mcp --transport http
-```
-
-### Codex
+Codex:
 
 ```bash
 codex mcp add electronics-price-mcp --url https://electronics-price-mcp.jinhyuk9714.workers.dev/mcp
 ```
 
-등록 후 확인:
+Claude Code:
 
 ```bash
-codex mcp list
-codex mcp get electronics-price-mcp
+claude mcp add electronics-price-mcp https://electronics-price-mcp.jinhyuk9714.workers.dev/mcp --transport http
 ```
 
-## 바로 써볼 질문
+바로 확인할 수 있는 HTTP endpoint:
 
-- `그램 16 검색해 줘`
-- `RTX 5070 가격 비교해 줘`
-- `무선 기계식 키보드 검색해 줘`
-- `이 모델 지금 바로 사도 괜찮은 가격대인지 설명해 줘`
+- `GET /prompt`
+- `GET /api/search?query=그램 16`
+- `GET /api/compare?query=RTX 5070`
+- `GET /health`
 
-## HTTP로 바로 확인하기
+공개 HTTP API는 읽기 전용이며 `search`, `compare`를 제공합니다.
 
-MCP를 직접 붙일 수 없는 환경에서는 HTTP 엔드포인트로 바로 확인할 수 있습니다.
+## 현재 상태와 제한
 
-- 프롬프트 안내: `https://electronics-price-mcp.jinhyuk9714.workers.dev/prompt`
-- 검색 API: `https://electronics-price-mcp.jinhyuk9714.workers.dev/api/search?query=그램 16`
-- 비교 API: `https://electronics-price-mcp.jinhyuk9714.workers.dev/api/compare?query=RTX 5070`
-- 헬스 체크: `https://electronics-price-mcp.jinhyuk9714.workers.dev/health`
+- production 기본값은 `Naver-only`입니다.
+- Danawa는 `danawa-canary` 환경에서 먼저 검증합니다.
+- `static-catalog`는 canary/dev fallback용 보조 source이며 production 기본값은 비활성입니다.
+- 실시간 재고, 배송 예정일, 역대 최저가는 다루지 않습니다.
+- 공개 엔드포인트에는 운영 가드레일이 적용됩니다.
+  - `/api/search`: 분당 60회
+  - `/api/compare`: 분당 60회
+  - `/mcp`: 분당 120회
 
-공개 HTTP API는 읽기 전용이며 `search`, `compare`만 제공합니다.
+Danawa canary URL:
 
-## Self-host 최소 가이드
+```text
+https://electronics-price-mcp-danawa-canary.jinhyuk9714.workers.dev
+```
 
-직접 실행하거나 배포할 때만 환경변수가 필요합니다. 공개 원격 MCP를 쓰는 경우에는 이 섹션을 건너뛰면 됩니다.
+## 로컬 실행과 직접 배포
 
-1. [.dev.vars.example](/Users/sungjh/Projects/mcp1/.worktrees/electronics-price-mcp/.dev.vars.example)를 참고해 `.dev.vars`를 만듭니다.
-2. 최소한 아래 값 하나는 준비합니다.
-   - `NAVER_CLIENT_ID` + `NAVER_CLIENT_SECRET`
-   - 또는 `ENABLE_DANAWA=true` + `DANAWA_CLIENT_ID` + `DANAWA_CLIENT_SECRET`
-3. 로컬 실행:
+공개 원격 MCP를 그대로 쓰는 경우에는 환경변수가 필요 없습니다. 직접 실행하거나 배포할 때만 `.dev.vars.example`을 참고해 `.dev.vars`를 만듭니다.
+
+아래 두 조합 중 하나 이상이 필요합니다.
+
+- `NAVER_CLIENT_ID` + `NAVER_CLIENT_SECRET`
+- `ENABLE_DANAWA=true` + `DANAWA_CLIENT_ID` + `DANAWA_CLIENT_SECRET`
 
 ```bash
 npm install
@@ -86,43 +88,49 @@ http://127.0.0.1:8787/mcp
 
 ```bash
 npm run deploy
-```
-
-canary 배포:
-
-```bash
 npm run deploy:danawa-canary
 ```
 
-운영용 smoke, canary 평가, GitHub Actions 승격 흐름은 [OPERATIONS.md](/Users/sungjh/Projects/mcp1/.worktrees/electronics-price-mcp/docs/OPERATIONS.md)에 정리돼 있습니다.
+운영용 smoke, canary 평가, GitHub Actions 승격 흐름은 `docs/OPERATIONS.md`에 정리되어 있습니다.
 
-## 현재 상태와 제한
+## 기술 스택
 
-- production은 현재 `Naver-only`입니다.
-- Danawa는 `danawa-canary`에서 먼저 검증합니다.
-- `static-catalog`는 canary/dev fallback용 보조 source이며 production 기본값은 비활성입니다.
-- 다른 모델이 섞이면 비교를 거부합니다. 예를 들어 `RTX 5070`과 `RTX 5070 Ti`는 같은 비교 대상으로 취급하지 않습니다.
-- 실시간 재고, 배송 예정일, 역대 최저가는 다루지 않습니다.
-- 공개 엔드포인트에는 운영 가드레일이 적용됩니다.
-  - `/api/search`: 분당 60회
-  - `/api/compare`: 분당 60회
-  - `/mcp`: 분당 120회
+| 영역 | 기술 |
+| --- | --- |
+| Runtime | Node.js 22+, TypeScript |
+| MCP/HTTP | `@modelcontextprotocol/sdk`, Hono |
+| Validation | Zod |
+| Deployment | Cloudflare Workers, Wrangler |
+| Guardrail | Durable Object rate limiter |
+| Quality | Vitest, TypeScript typecheck, service-quality eval scripts |
 
-기본 canary URL:
+## 프로젝트 구조
 
 ```text
-https://electronics-price-mcp-danawa-canary.jinhyuk9714.workers.dev
+src/
+├── domain/       # 모델명 정규화, price service, provider diagnostics
+├── providers/    # Naver, Danawa, static catalog provider
+├── server/       # MCP server와 price service 생성
+├── runtime/      # rate limit runtime
+├── pages/        # prompt, privacy, OpenAPI page
+└── eval/         # 품질 평가 harness
+eval-cases/       # service quality / multisource 평가 케이스
+reports/          # 최신 평가 리포트
+docs/             # 운영 런북
 ```
 
-## 운영 문서
+## 검증
 
-- 운영 런북: [OPERATIONS.md](/Users/sungjh/Projects/mcp1/.worktrees/electronics-price-mcp/docs/OPERATIONS.md)
-- 로컬 환경변수 예시: [.dev.vars.example](/Users/sungjh/Projects/mcp1/.worktrees/electronics-price-mcp/.dev.vars.example)
+```bash
+npm test
+npm run typecheck
+npm run build
+npm run eval:multisource-merge:strict
+npm run eval:service-quality:static:strict
+npm run eval:service-quality:advanced:static:strict
+```
 
-운영 문서에는 아래 내용이 따로 정리돼 있습니다.
+운영 리포트와 로컬 환경변수 예시는 다음 파일에서 확인할 수 있습니다.
 
-- rate limit, `X-Request-Id`, 구조화 로그
-- canary와 production 배포 절차
-- GitHub Actions `ci.yml`, `canary-eval.yml`, `deploy-worker.yml`
-- smoke check와 release drill
-- 장애 대응과 rollout 체크리스트
+- `docs/OPERATIONS.md`
+- `.dev.vars.example`
